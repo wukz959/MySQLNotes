@@ -1,0 +1,158 @@
+{
+  "main": {
+    "id": "d58673ae74ffb04f",
+    "type": "split",
+    "children": [
+      {
+        "id": "7095a3319ba88b96",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "48800776ede8abd1",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "MySQL日志与备份篇.md",
+                "mode": "source",
+                "source": false
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b9e07f638aead267",
+    "type": "split",
+    "children": [
+      {
+        "id": "6caf1fd5eafb8c36",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7b48fab3e6789783",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "9d09526d57d56e82",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "95b195351d62b8be",
+            "type": "leaf",
+            "state": {
+              "type": "starred",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "39d77ac16745eb58",
+    "type": "split",
+    "children": [
+      {
+        "id": "7978041cca13fae8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2ec184f36ec69cd3",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "MySQL日志与备份篇.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "767e66e34c16ba60",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "MySQL日志与备份篇.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "675d5f18455ba659",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              }
+            }
+          },
+          {
+            "id": "a1184bad8931c4e5",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "MySQL日志与备份篇.md"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false
+    }
+  },
+  "active": "48800776ede8abd1",
+  "lastOpenFiles": [
+    "MySQL架构篇.md",
+    "MySQL索引及调优篇.md",
+    "MySQL事物篇.md",
+    "MySQL日志与备份篇.md",
+    "第03章_用户与权限管理.pdf",
+    "第02章_MySQL的数据目录.pdf"
+  ]
+}
