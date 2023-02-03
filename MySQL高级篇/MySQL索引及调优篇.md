@@ -6238,6 +6238,8 @@ SELECT @uuid,uuid_to_bin(@uuid),uuid_to_bin(@uuid,TRUE);
 
 <img src="MySQL索引及调优篇.assets/image-20220706165231022.png" alt="image-20220706165231022" style="float:left;" />
 
+ps：元组应该指的是一行记录。
+
 **举例:**
 
 这里有两个表：
@@ -6247,7 +6249,7 @@ SELECT @uuid,uuid_to_bin(@uuid),uuid_to_bin(@uuid,TRUE);
 `球队表(team) `：球队编号 | 主教练 | 球队所在地
 
 * 超键 ：对于球员表来说，超键就是包括球员编号或者身份证号的任意组合，比如（球员编号） （球员编号，姓名）（身份证号，年龄）等。 
-* 候选键 ：就是最小的超键，对于球员表来说，候选键就是（球员编号）或者（身份证号）。 
+* 候选键 ：就是**最小的超键**，对于球员表来说，候选键就是（球员编号）或者（身份证号），而（球员编号，姓名）不是候选键，因为去掉姓名也可以唯一标识一条数据实体，同理（球员编号，身份证号）应该也不是候选键了。 但是在成绩表中**（学号,课程号）是一个候选键**，单独的学号，课程号都不能决定一条记录。
 * 主键 ：我们自己选定，也就是从候选键中选择一个，比如（球员编号）。 
 * 外键 ：球员表中的球队编号。 
 * 主属性 、 非主属性 ：在球员表中，主属性是（球员编号）（身份证号），其他的属性（姓名） （年龄）（球队编号）都是非主属性。
@@ -6292,7 +6294,7 @@ user 表的设计不符合第一范式
 
 ### 2.5 第二范式(2nd NF)
 
-第二范式要求，在满足第一范式的基础上，还要**满足数据库里的每一条数据记录，都是可唯一标识的。而且所有非主键字段，都必须完全依赖主键，不能只依赖主键的一部分**。如果知道主键的所有属性的值，就可以检索到任何元组（行）的任何属性的任何值。（要求中的主键，其实可以扩展替换为候选键）。
+第二范式要求，在满足第一范式的基础上，还要**满足数据库里的每一条数据记录，都是可唯一标识的。而且所有非主键字段，都必须完全依赖主键，不能只依赖主键的一部分**（如两个字段作为联合主键，而某字段只需要根据联合主键的其中一个就能找到该行记录，就称为部分依赖）。如果知道主键的所有属性的值，就可以检索到任何元组（行）的任何属性的任何值。（要求中的主键，其实可以扩展替换为候选键）。
 
 **举例1：**
 
@@ -6404,6 +6406,8 @@ Orders表和OrderDetails表如下，此时符合第二范式。
 <img src="MySQL索引及调优篇.assets/image-20220707124343085.png" alt="image-20220707124343085" style="zoom:80%;float:left" />
 
 ## 3. 反范式化
+
+ps：在使用反范式化之前，设计表时还是得先遵循第三范式，反范式化只是为了提高效率。
 
 ### 3.1 概述
 
@@ -6525,7 +6529,7 @@ ORDER BY class_id DESC LIMIT 1000;
 
 #### 2. 历史快照、历史数据的需要
 
-在现实生活中，我们经常需要一些冗余信息，比如订单中的收货人信息，包括姓名、电话和地址等。每 次发生的 `订单收货信息` 都属于 `历史快照` ，需要进行保存，但用户可以随时修改自己的信息，这时保存这 些冗余信息是非常有必要的。
+在现实生活中，我们经常需要一些冗余信息，比如订单中的收货人信息，包括姓名、电话和地址等。每 次发生的 `订单收货信息` 都属于 `历史快照` ，需要进行保存，但用户可以随时修改自己的信息，这时保存这 些冗余信息是非常有必要的。比如用户下单后修改了用户姓名，但历史快照记录的是旧的姓名。
 
 反范式优化也常用在 `数据仓库` 的设计中，因为数据仓库通常`存储历史数据` ，对增删改的实时性要求不 强，对历史数据的分析需求强。这时适当允许数据的冗余度，更方便进行数据分析。
 
@@ -6615,9 +6619,9 @@ ORDER BY class_id DESC LIMIT 1000;
 
 多值依赖的概念：
 
-* `多值依赖`即属性之间的一对多关系，记为K—>—>A。
+* `多值依赖`即属性之间的一对多关系，记为K—>—>A，一个K值决定多个A值。
 * `函数依赖`事实上是单值依赖，所以不能表达属性值之间的一对多关系。
-* `平凡的多值依赖`：全集U=K+A，一个K可以对应于多个A，即K—>—>A。此时整个表就是一组一对多关系。
+* `平凡的多值依赖`：全集U=K+A（U代表表的全部字段），一个K可以对应于多个A，即K—>—>A。此时整个表就是一组一对多关系。
 * `非平凡的多值依赖`：全集U=K+A+B，一个K可以对应于多个A，也可以对应于多个B，A与B相互独立，即K—>—>A，K—>—>B。整个表有多组一对多关系，且有："一"部分是相同的属性集合，“多”部分是相互独立的属性集合。
 
 第四范式即在满足巴斯 - 科德范式（BCNF）的基础上，消除非平凡且非函数依赖的多值依赖（即把同一表的多对多关系删除）。
@@ -6712,13 +6716,17 @@ ORDER BY class_id DESC LIMIT 1000;
 
 ![image-20220707164146216](MySQL索引及调优篇.assets/image-20220707164146216.png)
 
+ps：主键为联合主键（listnumber，barcode）。
+
 商品信息表：
 
 ![image-20220707164227845](MySQL索引及调优篇.assets/image-20220707164227845.png)
 
 现在，我们再来分析一下拆分后的3个表，保证这3个表都满足第二范式的要求。
 
-第3步，在“商品信息表”中，字段“barcode"是有`可能存在重复`的，比如，用户门店可能有散装称重商品和自产商品，会存在条码共用的情况。所以，所有的字段都不能唯一标识表里的记录。这个时候，我们必须给这个表加上一个主键，比如说是`自增字段"itemnumber"`。
+第3步，在“商品信息表”中，字段“barcode"是有`可能存在重复`的，比如，用户门店可能有**散装**称重商品和自产商品，会存在条码共用的情况。所以，所有的字段都不能唯一标识表里的记录。这个时候，我们必须给这个表加上一个主键，比如说是`自增字段"itemnumber"`：
+
+![image-20230202150018314](MySQL索引及调优篇.assets/image-20230202150018314.png)
 
 ### 7.3 迭代3次：考虑3NF
 
@@ -6733,6 +6741,8 @@ ORDER BY class_id DESC LIMIT 1000;
 <img src="MySQL索引及调优篇.assets/image-20220707165038108.png" alt="image-20220707165038108" style="float:left;" />
 
 这2个表都满足第三范式的要求了。
+
+ps：进货单明细表的主键为（listnumber，barcode），后面三个字段关系为 quantity * importprice = importvalue，即存在依赖关系。解决方法下面有提到，这里略去。
 
 ### 7.4 反范式化：业务优先的原则
 
@@ -7074,6 +7084,8 @@ General中的name和code填好后，就可以点击Attributes（属性）来设�
 
 <img src="MySQL索引及调优篇.assets/image-20220707175805226.png" alt="image-20220707175805226" style="float:left;" />
 
+ps：Variable characters为varchar。
+
 在此上图说明name和code的起名方法
 
 <img src="MySQL索引及调优篇.assets/image-20220707175827417.png" alt="image-20220707175827417" style="float:left;" />
@@ -7140,7 +7152,7 @@ General中的name和code填好后，就可以点击Attributes（属性）来设�
 
 <img src="MySQL索引及调优篇.assets/image-20220707180556645.png" alt="image-20220707180556645" style="float:left;" />
 
-在下面的这个点上对号即可，就设置好了自增
+在下面的这个点上对号即可，就设置好了**自增**
 
 <img src="MySQL索引及调优篇.assets/image-20220707180619440.png" alt="image-20220707180619440" style="float:left;" />
 
@@ -7478,6 +7490,8 @@ members_detail.member_id;
 
 <img src="MySQL索引及调优篇.assets/image-20220707212800544.png" alt="image-20220707212800544" style="float:left;" />
 
+ps：这种方式主要是针对**更新不频繁**的表。
+
 举例1： 学生信息表 和 班级表 的SQL语句如下：
 
 ```mysql
@@ -7506,7 +7520,7 @@ CREATE TABLE `temp_student` (
 `id` INT(11) NOT NULL AUTO_INCREMENT,
 `stu_name` INT NOT NULL ,
 `className` VARCHAR(20) DEFAULT NULL,
-`monitor` INT(3) DEFAULT NULL,
+`monitor` INT(3) DEFAULT NULL, # 应该是‘班长’
 PRIMARY KEY (`id`)
 ) ENGINE=INNODB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 ```
@@ -7521,6 +7535,14 @@ insert into temp_student(stu_name,className,monitor)
 ```
 
 以后，可以直接从temp_student表中查询学生名称、班级名称和班级班长，而不用每次都进行联合查 询。这样可以提高数据库的查询速度。
+
+ ![image-20230202221114856](MySQL索引及调优篇.assets/image-20230202221114856.png)
+
+ps：
+
+1）修改数据后，方式1是直接清空数据重新添加，而**不是修改数据**，估计是因为stu_name，className不能唯一确定一个学生吧，然后如果修改某学生所在班级且该班级有多名同名学生，就只能重新添加数据了。
+
+2）使用视图实际上是对查询语句的封装，对查询效率并没有实质性的变化。
 
 ### 3.3 增加冗余字段
 
@@ -7638,11 +7660,47 @@ MySQL中提供了ANALYZE TABLE语句分析表，ANALYZE TABLE语句的基本语�
 ANALYZE [LOCAL | NO_WRITE_TO_BINLOG] TABLE tbl_name[,tbl_name]…
 ```
 
-默认的，MySQL服务会将 ANALYZE TABLE语句写到binlog中，以便在主从架构中，从服务能够同步数据。 可以添加参数LOCAL 或者 NO_WRITE_TO_BINLOG取消将语句写到binlog中。
+默认的，MySQL服务会将 ANALYZE TABLE语句写到binlog（日志）中，以便在主从架构中，从服务能够同步数据。 可以添加参数LOCAL 或者 NO_WRITE_TO_BINLOG取消将语句写到binlog中。
 
 使用 `ANALYZE TABLE` 分析表的过程中，数据库系统会自动对表加一个 `只读锁` 。在分析期间，只能读取 表中的记录，不能更新和插入记录。ANALYZE TABLE语句能够分析InnoDB和MyISAM类型的表，但是不能作用于视图。
 
-ANALYZE TABLE分析后的统计结果会反应到 `cardinality` 的值，该值统计了表中某一键所在的列不重复 的值的个数。**该值越接近表中的总行数，则在表连接查询或者索引查询时，就越优先被优化器选择使用**。也就是索引列的cardinality的值与表中数据的总条数差距越大，即使查询的时候使用了该索引作为查 询条件，存储引擎实际查询的时候使用的概率就越小。下面通过例子来验证下。cardinality可以通过 SHOW INDEX FROM 表名查看。
+ANALYZE TABLE分析后的统计结果会反应到 `Cardinality(区分度)` 的值，该值统计了表中某一键所在的列**不重复的值的个数**。**该值越接近表中的总行数，则在表连接查询或者索引查询时，就越优先被优化器选择使用**。也就是索引列的Cardinality的值与表中数据的总条数差距越大，即使查询的时候使用了该索引作为查 询条件，存储引擎实际查询的时候使用的概率就越小。
+
+ <span style='background-color: yellow'>**注**</span>：Cardinality（区分度）值越大，说明数据的区分度越高，索引会越优先考虑它，而更新字段值时Cardinality不会自动更新，ANALYZE TABLE会刷新Cardinality的值。
+
+
+
+下面通过例子来验证下，Cardinality可以通过 SHOW INDEX FROM 表名查看：
+
+> show index from user1;
+
+![image-20230202230630514](MySQL索引及调优篇.assets/image-20230202230630514.png)
+
+行一的Cardinality为1000，表明id字段值有1000个不同的数据，行二的Cardinality为1，表明name字段值只有1个值（实际上有1000行数据，但name均相等）。
+
+ <img src="MySQL索引及调优篇.assets/image-20230202230933270.png" alt="image-20230202230933270" style="zoom:67%;" />
+
+此时修改name字段值：
+
+ ![image-20230202231032368](MySQL索引及调优篇.assets/image-20230202231032368.png)
+
+再查看Cardinality值：
+
+ ![image-20230202231112513](MySQL索引及调优篇.assets/image-20230202231112513.png)
+
+行二的Cardinality值还是1。
+
+分析表：
+
+ ![image-20230202231221538](MySQL索引及调优篇.assets/image-20230202231221538.png)
+
+再次查看Cardinality值：
+
+ ![image-20230202231243290](MySQL索引及调优篇.assets/image-20230202231243290.png)
+
+行二的Cardinality值变成2了。
+
+
 
 ```mysql
 mysql> ANALYZE TABLE user;
@@ -7713,7 +7771,7 @@ LOCAL | NO_WRITE_TO_BINLOG关键字的意义和分析表相同，都是指定不
 
 <a>[MySQL :: MySQL 8.0 Reference Manual :: 13.7.3.4 OPTIMIZE TABLE Statement](https://dev.mysql.com/doc/refman/8.0/en/optimize-table.html)</a>
 
-在MyISAM中，是先分析这张表，然后会整理相关的MySQL datafile，之后回收未使用的空间；在InnoDB 中，回收空间是简单通过Alter table进行整理空间。在优化期间，MySQL会创建一个临时表，优化完成之 后会删除原始表，然后会将临时表rename成为原始表。
+在MyISAM中，是先分析这张表，然后会整理相关的MySQL datafile，之后回收未使用的空间；在InnoDB 中，回收空间是简单通过Alter table进行整理空间。在优化期间，MySQL会创建一个临时表，优化完成之 后会删除原始表，然后会将临时表rename成为原始表。所以其实是有优化的。	
 
 > 说明： 在多数的设置中，根本不需要运行OPTIMIZE TABLE。即使对可变长度的行进行了大量的更 新，也不需要经常运行，` 每周一次` 或 `每月一次` 即可，并且只需要对 `特定的表` 运行。
 
