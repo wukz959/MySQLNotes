@@ -318,6 +318,14 @@ mysql> show variables like '%log_bin%';
 
 <img src="MySQL日志与备份篇.assets/image-20220715163520596.png" alt="image-20220715163520596" style="float:left;" />
 
+ps：存储函数如果在主机调用了now()获取时间，那在从机根据bin log调用now()获取到的时间可能不一致。
+
+可查看mysql数据文件存储目录发现多个binlog文件：
+
+ <img src="MySQL日志与备份篇.assets/image-20230211164852236.png" alt="image-20230211164852236" style="zoom:67%;" />
+
+ps：中间的数字为文件大小，如binlog.index文件大小为128.
+
 ### 5.2 日志参数设置
 
 **方式1：永久性方式**
@@ -327,7 +335,9 @@ mysql> show variables like '%log_bin%';
 ```properties
 [mysqld]
 #启用二进制日志
-log-bin=atguigu-bin
+#设置前缀，如上图的前缀就是binglog，而这里设置为atguigu-bin
+log-bin=atguigu-bin  
+
 binlog_expire_logs_seconds=600
 max_binlog_size=100M
 ```
@@ -353,7 +363,7 @@ mysql> show variables like '%log_bin%';
 
 **设置带文件夹的bin-log日志存放目录**
 
-如果想改变日志文件的目录和名称，可以对my.cnf或my.ini中的log_bin参数修改如下：
+如果想改变日志文件的目录和名称，可以对my.cnf（Linux下）或my.ini（Windows下）中的log_bin参数修改如下：
 
 ```properties
 [mysqld]
@@ -401,22 +411,34 @@ mysql> SHOW BINARY LOGS;
 1 行于数据集 (0.02 秒)
 ```
 
+ps：这里的文件大小为156（单位应该是kb），如果执行几条更新sql语句（查询操作不会记录），会发现该文件大小会变大，
+
+
+
 所有对数据库的修改都会记录在binlog中。但binlog是二进制文件，无法直接查看，想要更直观的观测它就要借助`mysqlbinlog`命令工具了。指令如下：在查看执行，先执行一条SQL语句，如下
 
 ```mysql
 update student set name='张三_back' where id=1;
 ```
 
-开始查看binlog
+开始查看binlog：
+
+> mysqlbinlog "/var/lib/mysql/atguigu-bin.000002"
 
 <img src="MySQL日志与备份篇.assets/image-20220715164718970.png" alt="image-20220715164718970" style="float:left;" />
 
 <img src="MySQL日志与备份篇.assets/image-20220715164743351.png" alt="image-20220715164743351" style="float:left;" />
 
+**ps**：
+
+1）上图BINLOG下的蓝色英文数字就是我们的增删改行为。
+
+2）上图的TIMESTAMP是事件开始的时间戳。
+
 <img src="MySQL日志与备份篇.assets/image-20220715164809401.png" alt="image-20220715164809401" style="float:left;" />
 
 ```mysql
-mysqlbinlog -v "/var/lib/mysql/binlog/atguigu-bin.000002"
+mysqlbinlog -v "/var/lib/mysql/atguigu-bin.000002"
 #220105 9:16:37 server id 1 end_log_pos 324 CRC32 0x6b31978b Query thread_id=10
 exec_time=0 error_code=0
 SET TIMESTAMP=1641345397/*!*/;
@@ -548,6 +570,8 @@ mysql> show binlog events in 'atguigu-bin.000002';
 14 行于数据集 (0.02 秒)
 ```
 
+ps：上面Pos从156到470为一个sql语句执行过程。
+
 <img src="MySQL日志与备份篇.assets/image-20220715165603879.png" alt="image-20220715165603879" style="float:left;" />
 
 上面我们讲了这么多都是基于binlog的默认格式，binlog格式查看
@@ -602,7 +626,69 @@ mysqlbinlog [option] filename|mysql –uuser -ppass;
 
 > 注意：使用mysqlbinlog命令进行恢复操作时，必须是编号小的先恢复，例如atguigu-bin.000001必须在atguigu-bin.000002之前恢复。
 
-详见p189，由于翻页过快，这部分没办法记录。
+#### 根据开始和结束位置恢复数据样例
+
+先插入三条数据：
+
+![image-20230213114329100](MySQL日志与备份篇.assets/image-20230213114329100.png)
+
+原数据：
+
+![image-20230213112852613](MySQL日志与备份篇.assets/image-20230213112852613.png)
+
+误删了id>20的数据：
+
+![image-20230213112811676](MySQL日志与备份篇.assets/image-20230213112811676.png)
+
+此时的binlog日志：
+
+![image-20230213112932568](MySQL日志与备份篇.assets/image-20230213112932568.png)
+
+由于我们要使用02日志恢复数据，而接下来的恢复操作会被记录到02日志中，所以这里我们要新建一个binlog日志来执行恢复操作。
+
+新建日志：
+
+> flush logs;
+
+![image-20230213113045155](MySQL日志与备份篇.assets/image-20230213113045155.png)
+
+通过查看日志语句查看：
+
+> mysql> show binlog events in 'atguigu-bin.000002';
+
+<img src="MySQL日志与备份篇.assets/image-20230213114530408.png" alt="image-20230213114530408" style="zoom:67%;" />
+
+由于这里插入是连续三个事务，所以推断出三个连续的xid，即35，36，37，找到对应的Pos进行回滚。
+
+ps：这三个xid后的事务是执行了其他sql语句，但这里略去不谈。
+
+找到起始与终止的Pos（下图的884和1729，两个Begin之间）：
+
+![image-20230213133822576](MySQL日志与备份篇.assets/image-20230213133822576.png)
+
+恢复指定数据：
+
+![image-20230213134004795](MySQL日志与备份篇.assets/image-20230213134004795.png)
+
+**ps**：
+
+1）-u后面带的是用户名，-p后面带的是数据库密码。
+
+2）上图“|”之前的是日志路径，可通过下图语句查看：
+
+<img src="MySQL日志与备份篇.assets/image-20230213134417575.png" alt="image-20230213134417575" style="zoom:67%;" />
+
+执行后，查看：
+
+<img src="MySQL日志与备份篇.assets/image-20230213134548515.png" alt="image-20230213134548515" style="zoom:67%;" />
+
+#### 根据开始和结束时间恢复数据
+
+![image-20230213135557834](MySQL日志与备份篇.assets/image-20230213135557834.png)
+
+ps：查看时间戳可通过 ‘查看日志’ 的mysqlbinlog语句，输出内容有时间戳：
+
+<img src="MySQL日志与备份篇.assets/image-20230213135809161.png" alt="image-20230213135809161" style="zoom:67%;" />
 
 ### 5.5 删除二进制日志
 
@@ -843,17 +929,29 @@ Last_IO_Error: Fatal error: The slave I/O thread stops because master and slave 
 equal MySQL server UUIDs; these UUIDs must be different for replication to work.
 ```
 
-修改MySQL Server 的UUID方式：
+**修改MySQL Server 的UUID方式：**
+
+主机登录mysql后，通过select uuid();生成一个新的UUID：
+
+ ![image-20230213205744853](MySQL日志与备份篇.assets/image-20230213205744853.png)
+
+复制该值，到从机：
 
 ```mysql
-vim /var/lib/mysql/auto.cnf
-
-systemctl restart mysqld
+vim /var/lib/mysql/auto.cnf 
 ```
+
+黏贴进去：
+
+![image-20230213205938806](MySQL日志与备份篇.assets/image-20230213205938806.png)
+
+最后重启一下即可：systemctl restart mysqld
 
 ### 3.2 主机配置文件
 
 建议mysql版本一致且后台以服务运行，主从所有配置项都配置在 `[mysqld]` 节点下，且都是小写字母。
+
+ps：配置命令为 vim /etc/my.cnf
 
 具体参数配置如下：
 
@@ -891,6 +989,10 @@ binlog_format=STATEMENT
 
 重启后台mysql服务，使配置生效。
 
+样例：
+
+![image-20230213223139900](MySQL日志与备份篇.assets/image-20230213223139900.png)
+
 > 注意：
 >
 > 先搭建完主从复制，再创建数据库。
@@ -905,7 +1007,7 @@ binlog_format=STATEMENT
 binlog_format=STATEMENT
 ```
 
-每一条会修改数据的sql语句会记录到binlog中。这是默认的binlog格式。
+每一条会修改数据的**sql语句**（不是sql执行后的数据）会记录到binlog中。这是默认的binlog格式。
 
 * SBR 的优点：
   * 历史悠久，技术成熟 
@@ -913,11 +1015,15 @@ binlog_format=STATEMENT
   * binlog中包含了所有数据库更改信息，可以据此来审核数据库的安全等情况 
   * binlog可以用于实时的还原，而不仅仅用于复制 
   * 主从版本可以不一样，从服务器版本可以比主服务器版本高
+  
 * SBR 的缺点：
   * 不是所有的UPDATE语句都能被复制，尤其是包含不确定操作的时候
+  
+  ps：因为保存的是sql执行的语句，所以主从机产生的数据不一定一致。
+  
 * 使用以下函数的语句也无法被复制：LOAD_FILE()、UUID()、USER()、FOUND_ROWS()、SYSDATE() (除非启动时启用了 --sysdate-is-now 选项)
   * INSERT ... SELECT 会产生比 RBR 更多的行级锁 
-  * 复制需要进行全表扫描(WHERE 语句中没有使用到索引)的 UPDATE 时，需要比 RBR 请求更多的行级锁 
+  * 复制需要进行全表扫描(WHERE 语句中没有使用到索引)的 UPDATE 时，需要比 RBR 请求更多的行级锁，因为前者全表扫描扫到哪锁就添加到哪，而RBR只对要修改的数据加锁。
   * 对于有 AUTO_INCREMENT 字段的 InnoDB表而言，INSERT 语句会阻塞其他 INSERT 语句 
   * 对于一些复杂的语句，在从服务器上的耗资源情况会更严重，而 RBR 模式下，只会对那个发 生变化的记录产生影响 
   * 执行复杂语句如果出错的话，会消耗更多资源
@@ -930,6 +1036,8 @@ binlog_format=ROW
 ```
 
 5.1.5版本的MySQL才开始支持，不记录每条sql语句的上下文信息，仅记录哪条数据被修改了，修改成什么样了。
+
+ps：能保证主从机的数据一致。
 
 * RBR 的优点：
   * 任何情况都可以被复制，这对复制来说是最 `安全可靠` 的。（比如：不会出现某些特定情况下 的存储过程、function、trigger的调用和触发无法被正确复制的问题） 
@@ -978,6 +1086,8 @@ MySQL会根据执行的每一条具体的sql语句来区分对待记录的日志
 > 注意：主从机都关闭防火墙
 > service iptables stop #CentOS 6
 > systemctl stop firewalld.service #CentOS 7
+>
+> 检查防火墙状态：systemctl status firewalld ，如果inactive后为dead即为关闭状态。
 
 ### 3.4 主机：建立账户并授权
 
@@ -993,7 +1103,7 @@ CREATE USER 'slave1'@'%' IDENTIFIED BY '123456';
 
 GRANT REPLICATION SLAVE ON *.* TO 'slave1'@'%';
 
-#此语句必须执行。否则见下面。
+#此语句必须执行。否则见下面。（我好像不会报错啊，嘤嘤嘤）
 ALTER USER 'slave1'@'%' IDENTIFIED WITH mysql_native_password BY '123456';
 
 flush privileges;
@@ -1032,18 +1142,30 @@ MASTER_LOG_POS=具体值;
 
 举例：
 
+先在主机执行语句获取参数值：
+
+<img src="MySQL日志与备份篇.assets/image-20230213225055659.png" alt="image-20230213225055659" style="zoom:67%;" />
+
+接着在从机执行：
+
 ```mysql
-CHANGE MASTER TO
-MASTER_HOST='192.168.1.150',MASTER_USER='slave1',MASTER_PASSWORD='123456',MASTER_LOG_F
-ILE='atguigu-bin.000007',MASTER_LOG_POS=154;
+CHANGE MASTER TO MASTER_HOST='192.168.43.101',MASTER_USER='slave1',MASTER_PASSWORD='123456',MASTER_LOG_FILE='atguigu-bin.000001',MASTER_LOG_POS=1306;
 ```
 
-![image-20220718140946747](MySQL日志与备份篇.assets/image-20220718140946747.png)
+![image-20230213225309464](MySQL日志与备份篇.assets/image-20230213225309464.png)
+
+ps：
+
+1）MASTER_HOST即主机ip地址。
+
+2）MASTER_USER即主机拥有的用户名，这里的slave1是3.4创建的用户
+
+3）MASTER_LOG_FILE根据从主机获取的参数值File获取，MASTER_LOG_POS则是Position参数值。
 
 **步骤2：**
 
 ```mysql
-#启动slave同步
+#在从机启动slave同步
 START SLAVE;
 ```
 
@@ -1069,7 +1191,7 @@ SHOW SLAVE STATUS\G;
 
 > 上面两个参数都是Yes，则说明主从配置成功！
 
-显式如下的情况，就是不正确的。可能错误的原因有：
+显示如下的情况，就是不正确的。可能错误的原因有：
 
 ```
 1. 网络不通
@@ -1084,17 +1206,20 @@ SHOW SLAVE STATUS\G;
 
 ### 3.6 测试
 
-主机新建库、新建表、insert记录，从机复制：
+**主机**新建库、新建表、insert记录，从机复制：
 
 ```mysql
+ # 数据库名是根据之前配置的Binlog_Do_DB值来的，可使用show master status;获取。如果此时主机创建的数据库名与此不一致，则从机不会创建该数据库。
 CREATE DATABASE atguigu_master_slave;
 
-CREATE TABLE mytbl(id INT,NAME VARCHAR(16));
+CREATE TABLE mytbl(id INT,NAME VARCHAR(32));
 
 INSERT INTO mytbl VALUES(1, 'zhang3');
 
 INSERT INTO mytbl VALUES(2,@@hostname);
 ```
+
+**注**：执行完上述语句后，从机也会拥有基本一致的数据。
 
 ### 3.7 停止主从同步
 
@@ -1102,6 +1227,7 @@ INSERT INTO mytbl VALUES(2,@@hostname);
 
   ```mysql
   stop slave;
+  #START SLAVE;重新开启从机
   ```
 
 * 如何重新配置主从
@@ -1279,12 +1405,18 @@ mysqldump –u 用户名称 –h 主机名称 –p密码 待备份的数据库�
 举例：使用root用户备份atguigu数据库：
 
 ```mysql
-mysqldump -uroot -p atguigu>atguigu.sql #备份文件存储在当前目录下
+mysqldump -uroot -p atguigu>atguigu.sql 
 ```
 
 ```mysql
-mysqldump -uroot -p atguigudb1 > /var/lib/mysql/atguigu.sql
+mysqldump -uroot -p atguigudb1 > /var/lib/mysql/atguigu.sql #备份文件存储在指定目录下的某文件（文件可以不存在）
 ```
+
+样例：
+
+![image-20230214165614828](MySQL日志与备份篇.assets/image-20230214165614828.png)
+
+ps：backup目录是我们自己创建的。
 
 备份文件剖析：
 
@@ -1346,6 +1478,26 @@ UNLOCK TABLES;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 -- Dump completed on 2022-01-07 9:58:23
 ```
+
+ps：上面的诸如!40101的注释表示的是mysql的最低版本，如40101表示至少4.01.01版本才可以使用。
+
+**windows下：**
+
+如果不知道mysql的位置，查看mysql的路径：
+
+先登录mysql，输入 show variables like "%char%";
+
+<img src="MySQL日志与备份篇.assets/image-20230214171259895.png" alt="image-20230214171259895" style="zoom:67%;" />
+
+接着，用管理员身份打开cmd，去到mysql的bin目录：
+
+<img src="MySQL日志与备份篇.assets/image-20230214171048402.png" alt="image-20230214171048402" style="zoom:80%;" />
+
+输入命令即可：
+
+<img src="MySQL日志与备份篇.assets/image-20230214171329637.png" alt="image-20230214171329637" style="zoom:80%;" />
+
+ps：my.sql文件一开始并不存在。
 
 ### 2.2 备份全部数据库
 
@@ -1734,6 +1886,8 @@ mysql –u root –p [dbname] < backup.sql
 mysql -uroot -p < atguigu.sql
 ```
 
+ps：该命令得进入到文件所在目录下执行，否则得使用绝对路径。
+
 否则需要指定数据库名称，如下所示
 
 ```mysql
@@ -1756,13 +1910,15 @@ mysql -uroot -pxxxxxx < all.sql
 
 ### 3.3 全量备份恢复
 
-可能有这样的需求，比如说我们只想恢复某一个库，但是我们有的是整个实例的备份，这个时候我们可以从全量备份中分离出单个库的备份。
+可能有这样的需求，比如说我们只想恢复某一个库，但是我们有的是整个实例（比如说多个数据库）的备份，这个时候我们可以从全量备份中分离出单个库的备份。
 
 举例：
 
 ```mysql
 sed -n '/^-- Current Database: `atguigu`/,/^-- Current Database: `/p' all_database.sql > atguigu.sql
-#分离完成后我们再导入atguigu.sql即可恢复单个库
+# 分离完成后我们再导入atguigu.sql即可恢复单个库
+# 这里的sql语句含义为将文件all_database.sql的atguigu数据库数据导出到atguigu.sql文件中，最后使用3.1语句执行即可。
+# ps：恢复后需查询登录mysql，不然查看的仍然是旧数据。
 ```
 
 ### 3.4 从单库备份中恢复单表
@@ -1773,14 +1929,17 @@ sed -n '/^-- Current Database: `atguigu`/,/^-- Current Database: `/p' all_databa
 
 ```mysql
 cat atguigu.sql | sed -e '/./{H;$!d;}' -e 'x;/CREATE TABLE `class`/!d;q' > class_structure.sql
+# 注：atguigu.sql是数据库备份，CREATE TABLE `class`代表提取库备份中创建class表的语句，生成class_structure.sql文件。
 cat atguigu.sql | grep --ignore-case 'insert into `class`' > class_data.sql
+# 注：'insert into `class`'代表提取insert到class表的语句。
 #用shell语法分离出创建表的语句及插入数据的语句后 再依次导出即可完成恢复
 
+
 use atguigu;
-mysql> source class_structure.sql;
+mysql> source /var/lib/mysql/backup/class_structure.sql; #执行文件,写完整路径。
 Query OK, 0 rows affected, 1 warning (0.00 sec)
 
-mysql> source class_data.sql;
+mysql> source /var/lib/mysql/backup/class_data.sql;
 Query OK, 1 row affected (0.01 sec)
 ```
 
@@ -1797,9 +1956,21 @@ Query OK, 1 row affected (0.01 sec)
 * 方式1：备份前，将服务器停止。
 * 方式2：备份前，对相关表执行 FLUSH TABLES WITH READ LOCK 操作。这样当复制数据库目录中 的文件时，允许其他客户继续查询表。同时，FLUSH TABLES语句来确保开始备份前将所有激活的索 引页写入硬盘。
 
+**备份样例**：
+
+添加锁：
+
+![image-20230214163453780](MySQL日志与备份篇.assets/image-20230214163453780.png)
+
+物理备份：
+
+![image-20230214163242421](MySQL日志与备份篇.assets/image-20230214163242421.png)
+
+ps：1）将atguigudb5备份到./backup/下。 2）该表存储引擎为MyISAM。
+
 这种方式方便、快速，但不是最好的备份方法，因为实际情况可能 `不允许停止MySQL服务器` 或者 `锁住表` ，而且这种方法 对InnoDB存储引擎 的表不适用。对于MyISAM存储引擎的表，这样备份和还原很方便，但是还原时最好是相同版本的MySQL数据库，否则可能会存在文件类型不同的情况。
 
-注意，物理备份完毕后，执行 UNLOCK TABLES 来结算其他客户对表的修改行为。
+注意，物理备份完毕后，执行 UNLOCK TABLES （不是unlock 表名）来结算其他客户对表的修改行为。
 
 > 说明： 在MySQL版本号中，第一个数字表示主版本号，主版本号相同的MySQL数据库文件格式相同。
 
@@ -1814,6 +1985,18 @@ Query OK, 1 row affected (0.01 sec)
 2）将备份的数据库数据拷贝到数据目录下，并重启MySQL服务器
 
 3）查询相关表的数据是否恢复。需要使用下面的` chown` 操作。
+
+样例：
+
+将上面备份的表移到对应目录下：
+
+![image-20230214164021935](MySQL日志与备份篇.assets/image-20230214164021935.png)
+
+然后重启一下：systemctl restart mysqld
+
+此时如果查询该数据库消息会报错，所以要添加权限：
+
+![image-20230214164325076](MySQL日志与备份篇.assets/image-20230214164325076.png)
 
 **要求：**
 
@@ -1888,6 +2071,8 @@ SELECT * FROM account INTO OUTFILE "/var/lib/mysql-files/account.txt";
 3 王五 0
 ```
 
+**注**：导出的只有数据，没有表结构。
+
 #### 2. 使用mysqldump命令导出文本文件
 
 **举例1：**使用mysqldump命令将将atguigu数据库中account表中的记录导出到文本文件：
@@ -1956,6 +2141,8 @@ PRIMARY KEY (`id`)
 ```mysql
 mysqldump -uroot -p -T "/var/lib/mysql-files/" atguigu account --fields-terminatedby=',' --fields-optionally-enclosed-by='\"'
 ```
+
+ps：1）"/var/lib/mysql-files/"是生成的文件存放的路径。2）atguigu是数据库名。
 
 语句mysqldump语句执行成功之后，指定目录下会出现两个文件account.sql和account.txt。
 

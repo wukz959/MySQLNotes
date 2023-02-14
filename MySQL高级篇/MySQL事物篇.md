@@ -112,6 +112,12 @@ UPDATE accounts SET money = money + 50 WHERE NAME = 'BB';
 
 ### 2.1 显式事务
 
+<font color='red'>注</font>：
+
+1）在当前会话测试事务的提交时，如果开启事务，但还未提交，**当前会话仍然显示的是修改后的结果**。要查看事务是否提交得开启**==新的会话==**进行查看。
+
+2）事务如果中途执行语句出现异常，会导致后面的语句全部不执行，即程序停止在异常语句处。
+
 **步骤1：** START TRANSACTION 或者 BEGIN ，作用是显式开启一个事务。
 
 ```mysql
@@ -149,7 +155,7 @@ START TRANSACTION READ WRITE, WITH CONSISTENT SNAPSHOT # 开启读写事务和�
 * `READ ONLY`和`READ WRITE`是用来设置所谓的事物`访问模式`的，就是以只读还是读写的方式来访问数据库中的数据，一个事务的访问模式不能同时即设置为`只读`的也设置为`读写`的，所以不能同时把`READ ONLY`和`READ WRITE`放到`START TRANSACTION`语句后边。
 * 如果我们不显式指定事务的访问模式，那么该事务的访问模式就是`读写`模式
 
-**步骤2：**一系列事务中的操作（主要是DML，不含DDL）
+**步骤2：**一系列事务中的操作（主要是**DML**，不含DDL）
 
 **步骤3：**提交事务 或 中止事务（即回滚事务）
 
@@ -173,14 +179,48 @@ mysql> ROLLBACK TO [SAVEPOINT]
 SAVEPOINT 保存点名称;
 ```
 
+ps：当事务回滚时，会回滚到保存点（如果事务已经经过保存点的话），保存点之前的事务不会回滚，`定义保存点的语句`与`执行保存点的语句`之间的事务就被回滚了，然后就会接着从**执行**保存点的语句往下执行。
+
 ```mysql
 # 删除某个保存点
 RELEASE SAVEPOINT 保存点名称;
 ```
 
+**样例一**：
+
+修改前：
+
+ ![image-20230203143136551](MySQL事物篇.assets/image-20230203143136551.png)
+
+修改，但**还未提交**：
+
+ <img src="MySQL事物篇.assets/image-20230203143239098.png" alt="image-20230203143239098" style="zoom:67%;" />
+
+此时在另一个会话查看：
+
+ ![image-20230203143316215](MySQL事物篇.assets/image-20230203143316215.png)
+
+可发现数据还未修改。
+
+最后commit;完就成功修改数据了。
+
+**样例二（保存点）**：
+
+修改前：
+
+ ![image-20230203143136551](MySQL事物篇.assets/image-20230203143136551.png)
+
+修改后：
+
+ <img src="MySQL事物篇.assets/image-20230203144523673.png" alt="image-20230203144523673" style="zoom:67%;" />
+
+ps：delete语句没有执行。
+
 ### 2.2 隐式事务
 
 MySQL中有一个系统变量 `autocommit` ：
+
+==**注**==：autocommit只对DML操作（CRUD）有效，对DDL操作（如建表，修改表，删除表）无效
 
 ```mysql
 mysql> SHOW VARIABLES LIKE 'autocommit';
@@ -208,7 +248,7 @@ mysql> SHOW VARIABLES LIKE 'autocommit';
 
 * 数据定义语言（Data definition language，缩写为：DDL）
 
-  数据库对象，指的就是`数据库、表、视图、存储过程`等结构。当我们`CREATE、ALTER、DROP`等语句去修改数据库对象时，就会隐式的提交前边语句所属于的事物。即：
+  数据库对象，指的就是`数据库、表、视图、存储过程`等结构。当我们`CREATE、ALTER、DROP`等语句去修改数据库对象时，就会**隐式的提交前边语句所属于的事物**。即：
 
   ```mysql
   BEGIN;
@@ -359,6 +399,8 @@ mysql> SELECT * FROM user;
 
 <img src="MySQL事物篇.assets/image-20220708201221316.png" alt="image-20220708201221316" style="float:left;" />
 
+completion=1即commit后就会直接开启事务，在下一次提交前的所有DML语句属于同一个事务。 
+
 > 当我们设置 autocommit=0 时，不论是否采用 START TRANSACTION 或者 BEGIN 的方式来开启事 务，都需要用 COMMIT 进行提交，让事务生效，使用 ROLLBACK 对事务进行回滚。
 >
 > 当我们设置 autocommit=1 时，每条 SQL 语句都会自动进行提交。 不过这时，如果你采用 START TRANSACTION 或者 BEGIN 的方式来显式地开启事务，那么这个事务只有在 COMMIT 时才会生效， 在 ROLLBACK 时才会回滚。
@@ -466,15 +508,15 @@ mysql> select * from student;
 
 针对事务的隔离性和并发性，我们怎么做取舍呢？先看一下访问相同数据的事务在 不保证串行执行 （也 就是执行完一个再执行另一个）的情况下可能会出现哪些问题：
 
-**1. 脏写（ Dirty Write ）**
+#### **1. 脏写（ Dirty Write ）**
 
 对于两个事务 Session A、Session B，如果事务Session A `修改了` 另一个 `未提交` 事务Session B `修改过` 的数据，那就意味着发生了 `脏写`，示意图如下：
 
 ![image-20220708214453902](MySQL事物篇.assets/image-20220708214453902.png)
 
-Session A 和 Session B 各开启了一个事务，Sesssion B 中的事务先将studentno列为1的记录的name列更新为'李四'，然后Session A中的事务接着又把这条studentno列为1的记录的name列更新为'张三'。如果之后Session B中的事务进行了回滚，那么Session A中的更新也将不复存在，这种现象称之为脏写。这时Session A中的事务就没有效果了，明明把数据更新了，最后也提交事务了，最后看到的数据什么变化也没有。这里大家对事务的隔离性比较了解的话，会发现默认隔离级别下，上面Session A中的更新语句会处于等待状态，这里只是跟大家说明一下会出现这样的现象。
+Session A 和 Session B 各开启了一个事务，Sesssion B 中的事务先将studentno列为1的记录的name列更新为'李四'，然后Session A中的事务接着又把这条studentno列为1的记录的name列更新为'张三'。如果之后Session B中的事务进行了回滚，那么Session A中的更新也将不复存在，这种现象称之为脏写。这时Session A中的事务就没有效果了，明明把数据更新了，最后也提交事务了，最后看到的数据什么变化也没有（ps：第二个BEGIN把第一个BEGIN的事务提交了）。这里大家对事务的隔离性比较了解的话，会发现默认隔离级别下，上面Session A中的更新语句会处于等待状态，这里只是跟大家说明一下会出现这样的现象。
 
-**2. 脏读（ Dirty Read ）**
+#### **2. 脏读（ Dirty Read ）**
 
  对于两个事务 Session A、Session B，Session A `读取` 了已经被 Session B `更新` 但还 `没有被提交` 的字段。 之后若 Session B `回滚` ，Session A `读取 `的内容就是 `临时且无效` 的。
 
@@ -482,7 +524,9 @@ Session A 和 Session B 各开启了一个事务，Sesssion B 中的事务先将
 
 Session A和Session B各开启了一个事务，Session B中的事务先将studentno列为1的记录的name列更新 为'张三'，然后Session A中的事务再去查询这条studentno为1的记录，如果读到列name的值为'张三'，而 Session B中的事务稍后进行了回滚，那么Session A中的事务相当于读到了一个不存在的数据，这种现象就称之为 `脏读` 。
 
-**3. 不可重复读（ Non-Repeatable Read ）**
+ps：要模拟脏读得先创建两个隔离级别均为READ-UNCOMMITED，然后按视图步骤执行语句即可。感觉脏读形成的原因是它**读取的是内存中的数据**，未提交的数据修改的就是内存的数据（一个会话修改数据后未提交前，另一个会话是不能修改数据的，另一个会话的修改语句只能在那个会话提交后再执行，不会有脏写的情况出现），导致读到了还在内存未提交的数据，且内存的数据最终并没有修改到磁盘上。
+
+#### **3. 不可重复读（ Non-Repeatable Read ）**
 
 对于两个事务Session A、Session B，Session A `读取`了一个字段，然后 Session B `更新`了该字段。 之后 Session A `再次读取` 同一个字段， `值就不同` 了。那就意味着发生了不可重复读。
 
@@ -490,7 +534,9 @@ Session A和Session B各开启了一个事务，Session B中的事务先将stude
 
 我们在Session B中提交了几个 `隐式事务` （注意是隐式事务，意味着语句结束事务就提交了），这些事务 都修改了studentno列为1的记录的列name的值，每次事务提交之后，如果Session A中的事务都可以查看到最新的值，这种现象也被称之为 `不可重复读 `。
 
-**4. 幻读（ Phantom ）**
+ps：要模拟不可重复读得先创建一个隔离级别均为READ-COMMITED（Session A），Session B并没有开启事务，所以Session B的更新操作是直接提交的。感觉READ-COMMITED就是**直接读磁盘的数据**，未提交的数据在内存中，所以读不到，而不可重复读就是在两次读取中间在另一个会话直接插入更新操作，导致读出的结果不一致。
+
+#### **4. 幻读（ Phantom ）**
 
 对于两个事务Session A、Session B, Session A 从一个表中 `读取` 了一个字段, 然后 Session B 在该表中 插 入 了一些新的行。 之后, 如果 Session A `再次读取` 同一个表, 就会多出几行。那就意味着发生了`幻读`。
 
@@ -511,8 +557,13 @@ Session A中的事务先根据条件 studentno > 0这个条件查询表student�
 我们愿意舍弃一部分隔离性来换取一部分性能在这里就体现在：设立一些隔离级别，隔离级别越低，并发问题发生的就越多。 `SQL标准` 中设立了4个 `隔离级别` ：
 
 * `READ UNCOMMITTED` ：读未提交，在该隔离级别，所有事务都可以看到其他未提交事务的执行结 果。不能避免脏读、不可重复读、幻读。 
-* `READ COMMITTED` ：读已提交，它满足了隔离的简单定义：一个事务只能看见已经提交事务所做 的改变。这是大多数数据库系统的默认隔离级别（但不是MySQL默认的）。可以避免脏读，但不可 重复读、幻读问题仍然存在。 
-* `REPEATABLE READ` ：可重复读，事务A在读到一条数据之后，此时事务B对该数据进行了修改并提 交，那么事务A再读该数据，读到的还是原来的内容。可以避免脏读、不可重复读，但幻读问题仍 然存在。这是MySQL的默认隔离级别。 
+
+* `READ COMMITTED` ：读已提交，它满足了隔离的简单定义：一个事务只能看见已经提交事务所做 的改变。这是大多数数据库系统的默认隔离级别（但不是MySQL默认的）。可以避免脏读，但不可重复读、幻读问题仍然存在。 感觉READ-COMMITED就是**直接读磁盘的数据**，未提交的数据在内存中，所以读不到，而不可重复读就是在两次读取中间在另一个会话直接插入更新操作（读取数据与修改数据均是操作的内存），导致读出的结果不一致。
+
+* `REPEATABLE READ` ：可重复读，事务A在读到一条数据之后，此时事务B对该数据进行了修改并提 交，那么事务A再读该数据，读到的还是原来的内容。可以避免脏读、不可重复读，但幻读问题仍 然存在。这是MySQL的默认隔离级别。 实现原理：
+
+  ![image-20230203213113763](MySQL事物篇.assets/image-20230203213113763.png)
+
 * `SERIALIZABLE` ：可串行化，确保事务可以从一个表中读取相同的行。在这个事务持续期间，禁止 其他事务对该表执行插入、更新和删除操作。所有的并发问题都可以避免，但性能十分低下。能避 免脏读、不可重复读和幻读。
 
 `SQL标准` 中规定，针对不同的隔离级别，并发事务可以发生不同严重程度的问题，具体情况如下：
@@ -591,7 +642,7 @@ SET [GLOBAL|SESSION] TRANSACTION_ISOLATION = '隔离级别'
 
   则：
 
-  + 当前已经存在的会话无效
+  + **当前已经存在的会话无效**
   + 只对执行完该语句之后产生的会话起作用
 
 * 使用 `SESSION` 关键字（在会话范围影响）：
@@ -608,7 +659,7 @@ SET [GLOBAL|SESSION] TRANSACTION_ISOLATION = '隔离级别'
   + 如果在事务之间执行，则对后续的事务有效
   + 该语句可以在已经开启的事务中间执行，但不会影响当前正在执行的事务
 
-如果在服务器启动时想改变事务的默认隔离级别，可以修改启动参数`transaction_isolation`的值。比如，在启动服务器时指定了`transaction_isolation=SERIALIZABLE`，那么事务的默认隔离界别就从原来的`REPEATABLE-READ`变成了`SERIALIZABLE`。
+如果在服务器启动时想改变事务的默认隔离级别，可以修改启动参数`transaction_isolation`的值（修改的应该是配置文件）。比如，在启动服务器时指定了`transaction_isolation=SERIALIZABLE`，那么事务的默认隔离界别就从原来的`REPEATABLE-READ`变成了`SERIALIZABLE`。
 
 > 小结： 
 >
@@ -649,6 +700,8 @@ INSERT INTO account VALUES (1,'张三','100'), (2,'李四','0');
 
 ![image-20220710194042096](MySQL事物篇.assets/image-20220710194042096.png)
 
+**==注==**：在事务2插入数据后，事务1再次查询count(*)值会发现它**依然为0**，但插入时是会报重复插入的错的。
+
 <img src="MySQL事物篇.assets/image-20220710194612317.png" alt="image-20220710194612317" style="float:left;" />
 
 ## 4. 事务的常见分类
@@ -677,7 +730,7 @@ INSERT INTO account VALUES (1,'张三','100'), (2,'李四','0');
 
 ## 1. redo日志
 
-InnoDB存储引擎是以`页为单位`来管理存储空间的。在真正访问页面之前，需要把在`磁盘上`的页缓存到内存中的`Buffer Pool`之后才可以访问。所有的变更都必须`先更新缓冲池`中的数据，然后缓冲池中的`脏页`会以一定的频率被刷入磁盘 (`checkPoint`机制)，通过缓冲池来优化CPU和磁盘之间的鸿沟，这样就可以保证整体的性能不会下降太快。
+InnoDB存储引擎是以`页为单位`来管理存储空间的。在真正访问页面之前，需要把在`磁盘上`的页缓存到内存中的`Buffer Pool`之后才可以访问。所有的变更都必须`先更新缓冲池`中的数据，然后缓冲池中的`脏页`（内存的数据改了，但磁盘的还没改）会以一定的频率被刷入磁盘 (`checkPoint`机制)，通过缓冲池来优化CPU和磁盘之间的鸿沟，这样就可以保证整体的性能不会下降太快。
 
 ### 1.1 为什么需要REDO日志
 
@@ -770,13 +823,17 @@ redo log的写入并不是直接写入磁盘的，InnoDB引擎会在写redo log�
 
 ![image-20220710205015302](MySQL事物篇.assets/image-20220710205015302.png)
 
-注意，redo log buffer刷盘到redo log file的过程并不是真正的刷到磁盘中去，只是刷入到 `文件系统缓存 （page cache）`中去（这是现代操作系统为了提高文件写入效率做的一个优化），真正的写入会交给系统自己来决定（比如page cache足够大了）。那么对于InnoDB来说就存在一个问题，如果交给系统来同 步，同样如果系统宕机，那么数据也丢失了（虽然整个系统宕机的概率还是比较小的）。
+注意，redo log buffer刷盘到redo log file的过程并不是真正的刷到磁盘中去，只是刷入到 `文件系统缓存 （page cache）`中去（这是现代操作系统为了提高文件写入效率做的一个优化），真正的**写入会交给系统**自己来决定（比如page cache足够大了）。那么对于InnoDB来说就存在一个问题，如果交给系统来同 步，同样**如果系统宕机，那么数据也丢失了**（虽然整个系统宕机的概率还是比较小的）。即一旦数据刷到`文件系统缓存`后，MySQL挂了不会影响数据加载到磁盘，但如果操作系统挂了数据就丢失了。
 
 针对这种情况，InnoDB给出 `innodb_flush_log_at_trx_commit` 参数，该参数控制 commit提交事务 时，如何将 redo log buffer 中的日志刷新到 redo log file 中。它支持三种策略：
 
 * `设置为0` ：表示每次事务提交时不进行刷盘操作。（系统默认master thread每隔1s进行一次重做日 志的同步） 第1步：先将原始数据从磁盘中读入内存中来，修改数据的内存拷贝 第2步：生成一条重做日志并写入redo log buffer，记录的是数据被修改后的值 第3步：当事务commit时，将redo log buffer中的内容刷新到 redo log file，对 redo log file采用追加 写的方式 第4步：定期将内存中修改的数据刷新到磁盘中 
+
 * `设置为1` ：表示每次事务提交时都将进行同步，刷盘操作（ 默认值 ） 
+
 * `设置为2` ：表示每次事务提交时都只把 redo log buffer 内容写入 page cache，不进行同步。由os自 己决定什么时候同步到磁盘文件。
+
+  ps：无论参数的值为哪个，都会将数据加载到page cache中，参数值不同只是在commit时策略不同而已。
 
 <img src="MySQL事物篇.assets/image-20220710205948156.png" alt="image-20220710205948156" style="float:left;" />
 
@@ -818,7 +875,7 @@ b CHAR(80)
 ```
 
 ```mysql
-DELIMITER//
+DELIMITER //
 CREATE PROCEDURE p_load(COUNT INT UNSIGNED)
 BEGIN
 DECLARE s INT UNSIGNED DEFAULT 1;
@@ -829,7 +886,7 @@ COMMIT;
 SET s=s+1;
 END WHILE;
 END //
-DELIMITER;
+DELIMITER ;
 ```
 
 <img src="MySQL事物篇.assets/image-20220710215001482.png" alt="image-20220710215001482" style="float:left;" />
@@ -869,7 +926,7 @@ Query OK, 0 rows affected(46 sec)
 
 #### 1. 补充概念：Mini-Transaction
 
-MySQL把对底层页面中的一次原子访问过程称之为一个`Mini-Transaction`，简称`mtr`，比如，向某个索引对应的B+树中插入一条记录的过程就是一个`Mini-Transaction`。一个所谓的`mtr`可以包含一组redo日志，在进行崩溃恢复时这一组`redo`日志可以作为一个不可分割的整体。
+MySQL把对底层页面中的一次**原子访问过程**称之为一个`Mini-Transaction`，简称`mtr`，比如，向某个索引对应的B+树中插入一条记录的过程就是一个`Mini-Transaction`。一个所谓的`mtr`可以包含一组redo日志（比如插入数据时，除了记录偏移量，还有可能需要移到B+树数据的位置，如换页等，这些也需要记录到redo中），在进行崩溃恢复时这一组`redo`日志可以作为一个不可分割的整体。
 
 一个事务可以包含若干条语句，每一条语句其实是由若干个 `mtr` 组成，每一个 `mtr` 又可以包含若干条 redo日志，画个图表示它们的关系就是这样：
 
@@ -885,9 +942,11 @@ MySQL把对底层页面中的一次原子访问过程称之为一个`Mini-Transa
 
 ![image-20220710221318271](MySQL事物篇.assets/image-20220710221318271.png)
 
-不同的事务可能是 `并发` 执行的，所以 T1 、 T2 之间的 mtr 可能是 `交替执行` 的。没当一个mtr执行完成时，伴随该mtr生成的一组redo日志就需要被复制到log buffer中，也就是说不同事务的mtr可能是交替写入log buffer的，我们画个示意图（为了美观，我们把一个mtr中产生的所有redo日志当做一个整体来画）：
+不同的事务可能是 `并发` 执行的，所以 T1 、 T2 之间的 mtr 可能是 `交替执行` 的。每当一个mtr执行完成时，伴随该mtr生成的一组redo日志就需要被复制到log buffer中，也就是说不同事务的mtr可能是交替写入log buffer的，我们画个示意图（为了美观，我们把一个mtr中产生的所有redo日志当做一个整体来画）：
 
 ![image-20220710221620291](MySQL事物篇.assets/image-20220710221620291.png)
+
+简单点说，就是两个事务的mtr可以交替进行，但对于每个mtr必须整个一次性完成后才能进行下一个mtr写入log buffer。
 
 有的mtr产生的redo日志量非常大，比如`mtr_t1_2`产生的redo日志占用空间比较大，占用了3个block来存储。
 
@@ -977,7 +1036,7 @@ innodb_log_file_size=200M
 
 ## 2. Undo日志
 
-redo log是事务持久性的保证，undo log是事务原子性的保证。在事务中 `更新数据` 的 `前置操作` 其实是要先写入一个 `undo log` 。
+redo log是事务持久性的保证，undo log是事务原子性的保证。在事务中 `更新数据` （不包括查询）的 `前置操作` 其实是要先写入一个 `undo log` 。
 
 ### 2.1 如何理解Undo日志
 
@@ -1066,6 +1125,8 @@ mysql> show variables like 'innodb_undo_logs';
 * update undo log
 
   update undo log记录的是对delete和update操作产生的undo log。该undo log可能需要提供MVCC机制，因此不能在事务提交时就进行删除。提交时放入undo log链表，等待purge线程进行最后的删除。
+  
+  ==注==：说insert可以直接删除是因为insert不需要维护历史数据。
 
 ### 2.5 undo log的生命周期
 
@@ -1122,7 +1183,7 @@ UPDATE user SET id=2 WHERE id=1;
 
 ![image-20220711164421494](MySQL事物篇.assets/image-20220711164421494.png)
 
-对于更新主键的操作，会先把原来的数据deletemark标识打开，这时并没有真正的删除数据，真正的删除会交给清理线程去判断，然后在后面插入一条新的数据，新的数据也会产生undo log，并且undo log的序号会递增。
+对于更新主键的操作，会先把原来的数据deletemark标识打开（即逻辑删除），这时并没有真正的删除数据，真正的删除会交给清理线程去判断，然后在后面插入一条新的数据，新的数据也会产生undo log，并且undo log的序号会递增。
 
 可以发现每次对数据的变更都会产生一个undo log，当一条记录被变更多次时，那么就会产生多条undo log，undo log记录的是变更前的日志，并且每个undo log的序号是递增的，那么当要回滚的时候，按照序号`依次向前推`，就可以找到我们的原始数据了。
 
@@ -1155,7 +1216,7 @@ UPDATE user SET id=2 WHERE id=1;
 
 undo log是逻辑日志，对事务回滚时，只是将数据库逻辑地恢复到原来的样子。
 
-redo log是物理日志，记录的是数据页的物理变化，undo log不是redo log的逆过程。
+redo log是物理日志，记录的是数据页的物理变化，**undo log不是redo log的逆过程**。
 
 # 第15章_锁
 
@@ -1237,6 +1298,12 @@ redo log是物理日志，记录的是数据页的物理变化，undo log不是r
 
 <img src="MySQL事物篇.assets/image-20220711203250284.png" alt="image-20220711203250284" style="float:left;" />
 
+**ps**：
+
+1）这里的加锁指的是给某些数据**行**加锁，而不是一个表。
+
+2）对于幻读的样例，比如当前事务对id<3的数据加锁，有三条数据；接着有另一个事务来添加数据，数据的id均小于3，这就导致了幻读的出现。
+
 * 小结对比发现：
 
   * 采用 `MVCC` 方式的话， 读-写 操作彼此并不冲突， 性能更高 。
@@ -1265,6 +1332,26 @@ redo log是物理日志，记录的是数据页的物理变化，undo log不是r
 
 <img src="MySQL事物篇.assets/image-20220711212931912.png" alt="image-20220711212931912" style="float:left;" />
 
+==注==：以这种方式创建的锁在commit后就会自动释放。
+
+S锁样例：
+
+ ![image-20230207151610384](MySQL事物篇.assets/image-20230207151610384.png)
+
+然后在另一个会话输入和上图一样的内容，也可正常输出。
+
+X锁样例：
+
+在上图事务未结束时，开启X锁：
+
+ ![image-20230207151744715](MySQL事物篇.assets/image-20230207151744715.png)
+
+可发现X锁处于等待状态，因为S锁并未释放，将两个S锁事务**提交**后就能显示结果了。
+
+同理，在上图X锁未结束前，再在另一个会话开启X锁，它也会处于等待状态。
+
+
+
 <img src="MySQL事物篇.assets/image-20220711213741630.png" alt="image-20220711213741630" style="float:left;" />
 
 <img src="MySQL事物篇.assets/image-20220711214013208.png" alt="image-20220711214013208" style="float:left;" />
@@ -1272,6 +1359,12 @@ redo log是物理日志，记录的是数据页的物理变化，undo log不是r
 #### 2. 写操作
 
 <img src="MySQL事物篇.assets/image-20220711214412163.png" alt="image-20220711214412163" style="float:left;" />
+
+ps：
+
+1）DELETE说的`看成是一个获取X锁的锁定读`理解：就是先查询定位到记录，再删除（delete mark），这个过程加上X锁（排他锁）就实现了加锁的过程。
+
+2）UPDATE说的键值指的是主键值。对于情况1指的是修改其他字段的值。
 
 ### 3.2 从数据操作的粒度划分：表级锁、页级锁、行锁
 
@@ -1292,6 +1385,8 @@ redo log是物理日志，记录的是数据页的物理变化，undo log不是r
 * `LOCK TABLES t WRITE` ：InnoDB存储引擎会对表 t 加表级别的 `X锁` 。
 
 不过尽量避免在使用InnoDB存储引擎的表上使用 `LOCK TABLES` 这样的手动锁表语句，它们并不会提供 什么额外的保护，只是会降低并发能力而已。InnoDB的厉害之处还是实现了更细粒度的 `行锁` ，关于 InnoDB表级别的 `S锁` 和` X锁` 大家了解一下就可以了。
+
+==**注**==：这种方式创建的锁在事务中commit后并**不会自动释放锁**。
 
 **举例：**下面我们讲解MyISAM引擎下的表锁。
 
@@ -1340,7 +1435,19 @@ LOCK TABLES t WRITE; # 存储引擎会对表t加表级别的排他锁。排他�
 
 比如：
 
-<img src="MySQL事物篇.assets/image-20220711220442269.png" alt="image-20220711220442269" style="float:left;" />
+ ![image-20230207202515483](MySQL事物篇.assets/image-20230207202515483.png)
+
+此时不能修改该表，以及操作其他表：
+
+ ![image-20230207200025055](MySQL事物篇.assets/image-20230207200025055.png)
+
+在另一个会话：
+
+ ![image-20230207200457587](MySQL事物篇.assets/image-20230207200457587.png)
+
+即他人可读，但他人不可写（等待锁的释放）。
+
+
 
 步骤4：释放表锁
 
@@ -1351,6 +1458,8 @@ UNLOCK TABLES; # 使用此命令解锁当前加锁的表
 比如：
 
 <img src="MySQL事物篇.assets/image-20220711220502141.png" alt="image-20220711220502141" style="float:left;" />
+
+ps：是unlock tables，不是unlock 表名
 
 步骤5：加读锁
 
@@ -1384,7 +1493,7 @@ MySQL的表级锁有两种模式：（以MyISAM表进行操作的演示）
 
 InnoDB 支持 `多粒度锁（multiple granularity locking）` ，它允许 `行级锁` 与 `表级锁` 共存，而`意向锁`就是其中的一种 `表锁` 。
 
-1. 意向锁的存在是为了协调行锁和表锁的关系，支持多粒度（表锁和行锁）的锁并存。
+1. 意向锁的存在是为了协调行锁和表锁的关系，支持多粒度（表锁和行锁）的锁并存（简单点说就是给某表上表级锁是需判断该表是否有锁，而对于行锁需要逐行遍历查看，效率差，意向锁可简化该过程）。
 2. 意向锁是一种`不与行级锁冲突表级锁`，这一点非常重要。
 3. 表明“某个事务正在某些行持有了锁或该事务准备去持有锁”
 
@@ -1409,6 +1518,8 @@ InnoDB 支持 `多粒度锁（multiple granularity locking）` ，它允许 `行
 **1. 意向锁要解决的问题**
 
 <img src="MySQL事物篇.assets/image-20220711222132300.png" alt="image-20220711222132300" style="float:left;" />
+
+ps：如果行锁为S锁（共享锁），则意向共享锁不会影响到添加表级别的S锁。
 
 **举例：**创建表teacher,插入6条数据，事务的隔离级别默认为`Repeatable-Read`，如下所示。
 
@@ -1453,6 +1564,8 @@ BEGIN;
 LOCK TABLES teacher READ;
 ```
 
+此时它会等待，直到获取到锁。
+
 <img src="MySQL事物篇.assets/image-20220712124209006.png" alt="image-20220712124209006" style="float:left;" />
 
 ```mysql
@@ -1485,15 +1598,21 @@ BEGIN;
 SELECT * FROM teacher WHERE id = 6 FOR UPDATE;
 ```
 
-事务A获取了teacher表上的意向排他锁。事务A获取了id为6的数据行上的排他锁。之后事务B想要获取teacher表上的共享锁。
+事务A获取了teacher表上的意向排他锁。事务A获取了id为6的数据行上的排他锁。
+
+之后事务B想要获取teacher表上的共享锁：
 
 ```mysql
 BEGIN;
 
 LOCK TABLES teacher READ;
+#或者下面该语句，也会阻塞
+#SELECT * FROM teacher WHERE id = 6 FOR UPDATE;
 ```
 
-事务B检测到事务A持有teacher表的意向排他锁。事务B对teacher表的加锁请求被阻塞（排斥）。最后事务C也想获取teacher表中某一行的排他锁。
+事务B检测到事务A持有teacher表的意向排他锁，事务B对teacher表的加锁请求**被阻塞**（排斥）。
+
+最后事务C也想获取teacher表中某一行的排他锁：
 
 ````mysql
 BEGIN;
@@ -1501,7 +1620,7 @@ BEGIN;
 SELECT * FROM teacher WHERE id = 5 FOR UPDATE;
 ````
 
-事务C申请teacher表的意向排他锁。事务C检测到事务A持有teacher表的意向排他锁。因为意向锁之间并不互斥，所以事务C获取到了teacher表的意向排他锁。因为id为5的数据行上不存在任何排他锁，最终事务C成功获取到了该数据行上的排他锁。
+事务C申请teacher表的意向排他锁。事务C检测到事务A持有teacher表的意向排他锁。因为**意向锁之间并不互斥**，所以事务C获取到了teacher表的意向排他锁。因为id为5的数据行上不存在任何排他锁，最终事务C**成功获取**到了该数据行上的排他锁。
 
 **从上面的案例可以得到如下结论：**
 
@@ -1553,7 +1672,7 @@ mysql> select * from teacher;
 
 **3. “Mixed-mode inserts” （混合模式插入）**
 
-这些是“Simple inserts”语句但是指定部分新行的自动递增值。例如 `INSERT INTO teacher (id,name) VALUES (1,'a'), (NULL,'b'), (5,'c'), (NULL,'d');` 只是指定了部分id的值。另一种类型的“混合模式插入”是 `INSERT ... ON DUPLICATE KEY UPDATE` 。
+这些是“Simple inserts”语句但是指定部分新行的自动递增值。例如 `INSERT INTO teacher (id,name) VALUES (1,'a'), (NULL,'b'), (5,'c'), (NULL,'d');` 只是指定了部分id的值，而没写id的得自动赋值。另一种类型的“混合模式插入”是 `INSERT ... ON DUPLICATE KEY UPDATE` 。
 
 <img src="MySQL事物篇.assets/image-20220712175552985.png" alt="image-20220712175552985" style="float:left;" />
 
@@ -1569,7 +1688,7 @@ innodb_autoinc_lock_mode有三种取值，分别对应与不同锁定模式：
 
 在这个模式下，“bulk inserts”仍然使用AUTO-INC表级锁，并保持到语句结束。这适用于所有INSERT ... SELECT，REPLACE ... SELECT和LOAD DATA语句。同一时刻只有一个语句可以持有AUTO-INC锁。
 
-对于“Simple inserts”（要插入的行数事先已知），则通过在 `mutex（轻量锁）` 的控制下获得所需数量的自动递增值来避免表级AUTO-INC锁， 它只在分配过程的持续时间内保持，而不是直到语句完成。不使用表级AUTO-INC锁，除非AUTO-INC锁由另一个事务保持。如果另一个事务保持AUTO-INC锁，则“Simple inserts”等待AUTO-INC锁，如同它是一个“bulk inserts”。
+对于“Simple inserts”（要插入的行数事先已知），则通过在 `mutex（轻量锁）` 的控制下获得所需数量的自动递增值来避免表级AUTO-INC锁， 它只在分配过程的持续时间内保持，而不是直到语句完成（简单点说就是获得AUTO-INC表级锁后，先获取要插入的所有数据的递增的值（因为插入行数已知），然后就**释放锁**，至于插入就慢慢来；其他事务获得锁后就从之前递增的最大值开始接着递增。）。不使用表级AUTO-INC锁，除非AUTO-INC锁由另一个事务保持。如果另一个事务保持AUTO-INC锁，则“Simple inserts”等待AUTO-INC锁，如同它是一个“bulk inserts”。
 
 `（3）innodb_autoinc_lock_mode = 2(“交错”锁定模式)`
 
@@ -1611,6 +1730,8 @@ Query OK, 0 rows affected (0.00 sec)
 mysql> alter table teacher add age int not null;
 ```
 
+ps：此时处于阻塞状态。
+
 **会话C：**查看当前MySQL的进程
 
 ```mysql
@@ -1623,7 +1744,13 @@ mysql> show processlist;
 
 <img src="MySQL事物篇.assets/image-20220713143156759.png" alt="image-20220713143156759" style="float:left;" />
 
-#### 2. InnoDB中的行锁
+ps：
+
+1）上图如果没有Session B，那么Session A和C是可以一起执行的。
+
+2）上面均没有手动加锁，而是自动加的MDL锁。
+
+#### 2. InnoDB中的行锁（MyISAM只支持表锁）
 
 行锁（Row Lock）也称为记录锁，顾名思义，就是锁住某一行（某条记录 row）。需要注意的是，MySQL服务器层并没有实现行锁机制，**行级锁只在存储引擎层实现**。
 
@@ -1675,6 +1802,12 @@ student表中的聚簇索引的简图如下所示。
 
 ![image-20220713164948405](MySQL事物篇.assets/image-20220713164948405.png)
 
+ps：
+
+1）在上图Session1的update语句执行后，其实就已经添加了行锁（X锁）。
+
+2）在Session2的update失败后（这里是阻塞后再超时失败的），查询id=1的S锁也会进入阻塞。
+
 记录锁是有S锁和X锁之分的，称之为 `S型记录锁` 和 `X型记录锁` 。
 
 * 当一个事务获取了一条记录的S型记录锁后，其他事务也可以继续获取该记录的S型记录锁，但不可以继续获取X型记录锁；
@@ -1682,11 +1815,27 @@ student表中的聚簇索引的简图如下所示。
 
 ##### ② 间隙锁（Gap Locks）
 
-`MySQL` 在 `REPEATABLE READ` 隔离级别下是可以解决幻读问题的，解决方案有两种，可以使用 `MVCC` 方 案解决，也可以采用 `加锁 `方案解决。但是在使用加锁方案解决时有个大问题，就是事务在第一次执行读取操作时，那些幻影记录尚不存在，我们无法给这些 `幻影记录` 加上 `记录锁` 。InnoDB提出了一种称之为 `Gap Locks` 的锁，官方的类型名称为：` LOCK_GAP` ，我们可以简称为 `gap锁` 。比如，把id值为8的那条 记录加一个gap锁的示意图如下。
+`MySQL` 在 `REPEATABLE READ` 隔离级别下是可以解决幻读问题的，解决方案有两种，可以使用 `MVCC` 方 案解决，也可以采用 `加锁 `方案解决。但是在使用加锁方案解决时有个大问题，就是事务在第一次执行读取操作时，那些幻影记录尚不存在，我们无法给这些 `幻影记录` 加上 `记录锁` 。InnoDB提出了一种称之为 `Gap Locks` 的锁，官方的类型名称为：` LOCK_GAP` ，我们可以简称为 `gap锁` 。比如，把id值为8的那条记录加一个gap锁的示意图如下。
+
+添加锁（间隙锁应该是和下面的锁（S或X锁都行）一起添加的）：
+
+ ![image-20230207221109997](MySQL事物篇.assets/image-20230207221109997.png)
 
 ![image-20220713171650888](MySQL事物篇.assets/image-20220713171650888.png)
 
-图中id值为8的记录加了gap锁，意味着 `不允许别的事务在id值为8的记录前边的间隙插入新记录` ，其实就是 id列的值(3, 8)这个区间的新记录是不允许立即插入的。比如，有另外一个事务再想插入一条id值为4的新 记录，它定位到该条新记录的下一条记录的id值为8，而这条记录上又有一个gap锁，所以就会阻塞插入 操作，直到拥有这个gap锁的事务提交了之后，id列的值在区间(3, 8)中的新记录才可以被插入。
+在另一个会话插入：
+
+ ![image-20230207221414405](MySQL事物篇.assets/image-20230207221414405.png)
+
+ps：会处于等待状态。
+
+图中id值为8的记录加了gap锁，意味着 `不允许别的事务在id值为8的记录前边和后边之间的间隙插入新记录` ，其实就是 id列的值(3, 15)这个区间的新记录是不允许立即插入的。比如，有另外一个事务再想插入一条id值为4的新记录，它定位到该条新记录的下一条记录的id值为8，而这条记录上又有一个gap锁，所以就会阻塞插入 操作，直到拥有这个gap锁的事务提交了之后，id列的值在区间(3, 15)中的新记录才可以被插入。
+
+ps：
+
+1）即使加锁的id不存在，效果等价于上面，如查询id为5，则3到8之间不允许插入新记录。
+
+2）如果加锁的id为20，则间隙锁范围为15到正无穷。
 
 **gap锁的提出仅仅是为了防止插入幻影记录而提出的。**虽然有`共享gap锁`和`独占gap锁`这样的说法，但是它们起到的作用是相同的。而且如果对一条记录加了gap锁（不论是共享gap锁还是独占gap锁），并不会限制其他事务对这条记录加记录锁或者继续加gap锁。
 
@@ -1725,6 +1874,8 @@ Empty set (0.01 sec)
 
 ##### ③ 临键锁（Next-Key Locks）
 
+**写在前面**，范围不要取得太大，不然估计会超时。
+
 有时候我们既想 `锁住某条记录` ，又想 阻止 其他事务在该记录前边的 间隙插入新记录 ，所以InnoDB就提 出了一种称之为 Next-Key Locks 的锁，官方的类型名称为： LOCK_ORDINARY ，我们也可以简称为 next-key锁 。Next-Key Locks是在存储引擎 innodb 、事务级别在 可重复读 的情况下使用的数据库锁， innodb默认的锁就是Next-Key locks。比如，我们把id值为8的那条记录加一个next-key锁的示意图如下：
 
 ![image-20220713192549340](MySQL事物篇.assets/image-20220713192549340.png)
@@ -1735,6 +1886,10 @@ Empty set (0.01 sec)
 begin;
 select * from student where id <=8 and id > 3 for update;
 ```
+
+ps：此时id为8的记录不能添加S或X锁，如：begin; 	select * from student where id =8 for update;
+
+##### ④插入意向锁
 
 <img src="MySQL事物篇.assets/image-20220713203124889.png" alt="image-20220713203124889" style="float:left;" />
 
@@ -1817,6 +1972,12 @@ mysql> insert INTO student VALUES(34,"周八","二班");
 Query OK, 1 row affected (0.00 sec)
 ```
 
+此时查看锁有哪些：
+
+​	![image-20230208111552571](MySQL事物篇.assets/image-20230208111552571.png)
+
+可发现此时并没有锁。
+
 **session 2:**
 
 ```mysql
@@ -1843,6 +2004,8 @@ BLOCKING_ENGINE_TRANSACTION_ID: 15902
 BLOCKING_OBJECT_INSTANCE_BEGIN: 140562535619104
 1 row in set (0.00 sec)
 ```
+
+即session 2给session1创建了隐式锁。
 
 隐式锁的逻辑过程如下：
 
@@ -1898,6 +2061,8 @@ Flush tables with read lock
 
 <img src="MySQL事物篇.assets/image-20220713220936236.png" alt="image-20220713220936236" style="float:left;" />
 
+ps：操作1获取了X锁，接着操作2也获取了X锁，最后进行操作3与操作4导致死锁出现。
+
 #### 2. 产生死锁的必要条件
 
 1. 两个或者两个以上事务
@@ -1938,7 +2103,7 @@ Flush tables with read lock
 
 **进一步的思路：**
 
-可以考虑通过将一行改成逻辑上的多行来减少`锁冲突`。比如，连锁超市账户总额的记录，可以考虑放到多条记录上。账户总额等于这多个记录的值的总和。
+可以考虑通过将一行改成逻辑上的多行来减少`锁冲突`。比如，连锁超市账户总额的记录，可以考虑放到多条记录上。账户总额等于这多个记录的值的总和，即不让分部的每条消费记录都提交到总部，而是隔一段时间总和起来提交。
 
 #### 4. 如何避免死锁
 
@@ -1970,7 +2135,7 @@ SELECT * FROM user LOCK IN SHARE MODE;
 
 不论是 `表锁` 还是 `行锁` ，都是在事务执行过程中生成的，哪个事务生成了这个锁结构 ，这里就记录这个 事务的信息。
 
-此 `锁所在的事务信息` 在内存结构中只是一个指针，通过指针可以找到内存中关于该事务的更多信息，比方说事务id等。
+此 `锁所在的事务信息` 在内存结构中只是一个**指针**，通过指针可以找到内存中关于该事务的更多信息，比方说事务id等。
 
 `2. 索引信息` ：
 
@@ -2026,7 +2191,7 @@ SELECT * FROM user LOCK IN SHARE MODE;
 
 `6. 一堆比特位` ：
 
-如果是 `行锁结构` 的话，在该结构末尾还放置了一堆比特位，比特位的数量是由上边提到的 `n_bits` 属性 表示的。InnoDB数据页中的每条记录在 `记录头信息` 中都包含一个 `heap_no` 属性，伪记录 `Infimum` 的 `heap_no` 值为 0 ， `Supremum` 的 `heap_no` 值为 1 ，之后每插入一条记录， `heap_no` 值就增1。 锁结 构 最后的一堆比特位就对应着一个页面中的记录，一个比特位映射一个 `heap_no` ，即一个比特位映射 到页内的一条记录。
+如果是 `行锁结构` 的话，在该结构末尾还放置了一堆比特位，比特位的数量是由上边提到的 `n_bits` 属性 表示的。InnoDB数据页中的每条记录在 `记录头信息` 中都包含一个 `heap_no` 属性，伪记录 `Infimum` 的 `heap_no` 值为 0 ， `Supremum` 的 `heap_no` 值为 1 ，之后每插入一条记录， `heap_no` 值就增1。 锁结构 最后的一堆比特位就对应着一个页面中的记录，一个比特位映射一个 `heap_no` ，即一个比特位映射到页内的一条记录。
 
 ## 5. 锁监控
 
@@ -2051,10 +2216,10 @@ mysql> show status like 'innodb_row_lock%';
 * Innodb_row_lock_current_waits：当前正在等待锁定的数量； 
 * `Innodb_row_lock_time` ：从系统启动到现在锁定总时间长度；（等待总时长） 
 * `Innodb_row_lock_time_avg` ：每次等待所花平均时间；（等待平均时长） 
-* Innodb_row_lock_time_max：从系统启动到现在等待最常的一次所花的时间； 
+* Innodb_row_lock_time_max：从系统启动到现在等待最长的一次所花的时间； 
 * `Innodb_row_lock_waits` ：系统启动后到现在总共等待的次数；（等待总次数）
 
-对于这5个状态变量，比较重要的3个见上面（灰色）。
+对于这5个状态变量，比较重要的3个见上面（橙色）。
 
 尤其是当等待次数很高，而且每次等待时长也不小的时候，我们就需要分析系统中为什么会有如此多的等待，然后根据分析结果着手指定优化计划。
 
@@ -2378,7 +2543,7 @@ MVCC在MySQL InnoDB中的实现主要是为了提高数据库并发性能，用�
 
 ### 2.1 快照读
 
-快照读又叫一致性读，读取的是快照数据。**不加锁的简单的 SELECT 都属于快照读**，即不加锁的非阻塞 读；比如这样：
+快照读又叫一致性读，读取的是快照数据。**不加锁的简单的 SELECT 都属于快照读**，即不加锁的非阻塞读；比如这样：
 
 ```mysql
 SELECT * FROM player WHERE ...
@@ -2453,6 +2618,8 @@ MVCC 的实现依赖于：`隐藏字段`、`Undo Log`、`Read View`。
 
 ### 4.2 设计思路
 
+**写在前面**，看不懂的话直接看 5.举例说明。
+
 使用 `READ UNCOMMITTED` 隔离级别的事务，由于可以读到未提交事务修改过的记录，所以直接读取记录的最新版本就好了。
 
 使用 `SERIALIZABLE` 隔离级别的事务，InnoDB规定使用加锁的方式来访问记录。
@@ -2469,7 +2636,7 @@ MVCC 的实现依赖于：`隐藏字段`、`Undo Log`、`Read View`。
 
 3. `up_limit_id` ，活跃的事务中最小的事务 ID。
 
-4. `low_limit_id` ，表示生成ReadView时系统中应该分配给下一个事务的 id 值。low_limit_id 是系 统最大的事务id值，这里要注意是系统中的事务id，需要区别于正在活跃的事务ID。
+4. `low_limit_id` ，表示生成ReadView时系统中应该分配给下一个事务的 id 值。low_limit_id 是系 统最大的事务id值，这里要注意是系统中的事务id，需要区别于正在活跃的事务ID，有可能是已提交的事务id的下一个id值。
 
 > 注意：low_limit_id并不是trx_ids中的最大值，事务id是递增分配的。比如，现在有id为1， 2，3这三个事务，之后id为3的事务提交了。那么一个新的读事务在生成ReadView时， trx_ids就包括1和2，up_limit_id的值就是1，low_limit_id的值就是4。
 
