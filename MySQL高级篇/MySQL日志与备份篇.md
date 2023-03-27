@@ -1087,7 +1087,7 @@ MySQL会根据执行的每一条具体的sql语句来区分对待记录的日志
 > service iptables stop #CentOS 6
 > systemctl stop firewalld.service #CentOS 7
 >
-> 检查防火墙状态：systemctl status firewalld ，如果inactive后为dead即为关闭状态。
+> 检查防火墙状态：systemctl status firewalld; ，如果inactive后为dead即为关闭状态。
 
 ### 3.4 主机：建立账户并授权
 
@@ -1203,6 +1203,12 @@ SHOW SLAVE STATUS\G;
 ```
 
 <img src="MySQL日志与备份篇.assets/image-20220718142045114.png" alt="image-20220718142045114" style="zoom:80%;" />
+
+写在后面，如果无法实现主从复制，不妨查看一下SHOW SLAVE STATUS\G;下的：
+
+![image-20230228103630097](MySQL日志与备份篇.assets/image-20230228103630097.png)
+
+再查询该报错信息的含义，正常情况下这里报错信息应该不存在的。
 
 ### 3.6 测试
 
