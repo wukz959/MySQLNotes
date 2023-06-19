@@ -512,6 +512,8 @@ mysql> select * from student;
 
 对于两个事务 Session A、Session B，如果事务Session A `修改了` 另一个 `未提交` 事务Session B `修改过` 的数据，那就意味着发生了 `脏写`，示意图如下：
 
+
+
 ![image-20220708214453902](MySQL事物篇.assets/image-20220708214453902.png)
 
 Session A 和 Session B 各开启了一个事务，Sesssion B 中的事务先将studentno列为1的记录的name列更新为'李四'，然后Session A中的事务接着又把这条studentno列为1的记录的name列更新为'张三'。如果之后Session B中的事务进行了回滚，那么Session A中的更新也将不复存在，这种现象称之为脏写。这时Session A中的事务就没有效果了，明明把数据更新了，最后也提交事务了，最后看到的数据什么变化也没有（ps：第二个BEGIN把第一个BEGIN的事务提交了）。这里大家对事务的隔离性比较了解的话，会发现默认隔离级别下，上面Session A中的更新语句会处于等待状态，这里只是跟大家说明一下会出现这样的现象。
@@ -713,6 +715,128 @@ INSERT INTO account VALUES (1,'张三','100'), (2,'李四','0');
 * 链事务（Chained Transactions） 
 * 嵌套事务（Nested Transactions） 
 * 分布式事务（Distributed Transactions）
+
+## 5.查看最近的事务的执行信息
+
+**回顾：与事务有关的相关事件表：**
+
+![img](MySQL事物篇.assets/clip_image002.jpg)
+
+\#借助performance_schema的events_transactions_*表来查看与事务相关的记录，在这些表中详细记录了是否有事务被回滚、活跃（长时间**未提交的事务**也属于活跃事务）或已提交等信息。
+
+ 
+
+\#下面分别模拟几种事务情况，并查看事务事件记录表。
+
+**会话1**：首先需要进行配置启用，事务事件默认并未启用。
+
+mysql> update setup_instruments set enabled='yes',timed='yes' where name like 'transaction';
+
+Query OK, 1 row affected (0.00 sec)
+
+Rows matched: 1 Changed: 1 Warnings: 0
+
+ 
+
+mysql> update setup_consumers set enabled='yes' where name like '%transaction%';
+
+Query OK, 3 rows affected (0.00 sec)
+
+Rows matched: 3 Changed: 3 Warnings: 0
+
+![img](MySQL事物篇.assets/clip_image004.jpg)
+
+**会话1**：执行清理，避免其他事务干扰
+
+mysql> truncate events_transactions_current; truncate events_transactions_history; truncate events_transactions_history_long;
+
+Query OK, 0 rows affected (0.00 sec)
+
+......
+
+![img](MySQL事物篇.assets/clip_image006.jpg)
+
+**会话2**：开启一个新会话用于执行事务，并**模拟事务回滚**。
+
+mysql> use sbtest
+
+Database changed
+
+mysql> begin;
+
+Query OK, 0 rows affected (0.00 sec)
+
+ 
+
+mysql> update sbtest1 set pad='yyy' where id=1;
+
+![img](MySQL事物篇.assets/clip_image002-1680836919517-5.jpg)
+
+Ps：如果Changed为0，则得结束事务或者rollback，重新开启事务换一个id直到changed不为0.
+
+**会话1**：从events_transactions_current表中查询活跃事务
+
+mysql> select THREAD_ID, EVENT_NAME,STATE,TRX_ID, GTID,SOURCE,TIMER_WAIT,ACCESS_MODE, ISOLATION_LEVEL,AUTOCOMMIT,NESTING_EVENT_ID,NESTING_EVENT_TYPE from events_transactions_**current**\G
+
+![img](MySQL事物篇.assets/clip_image004-1680836919517-6.jpg)
+
+**会话2**：回滚事务，被回滚完成的事务不再活跃。
+
+mysql> rollback;
+
+Query OK, 0 rows affected (0.01 sec) 
+
+![img](MySQL事物篇.assets/clip_image006-1680836919516-4.jpg)
+
+**会话1**：查询事务事件历史记录表events_transactions**_history_long**
+
+mysql> select THREAD_ID, EVENT_NAME,STATE,TRX_ID, GTID,SOURCE,TIMER_WAIT,ACCESS_MODE, ISOLATION_LEVEL,AUTOCOMMIT,NESTING_EVENT_ID,NESTING_EVENT_TYPE from events_transactions_history_long\G
+
+![img](MySQL事物篇.assets/clip_image008.jpg)
+
+ 
+
+**会话2**：模拟事务正常提交
+
+mysql> begin;
+
+Query OK, 0 rows affected (0.00 sec)
+
+
+
+mysql> update sbtest1 set pad='yyy' where id=1;
+
+Query OK, 1 row affected (0.00 sec)
+
+Rows matched: 1 Changed: 1 Warnings: 0
+
+ 
+
+mysql> commit;
+
+Query OK, 0 rows affected (0.01 sec)
+
+![img](MySQL事物篇.assets/clip_image010.jpg)
+
+**会话1**：看到事务已经提交成功。
+
+mysql> select THREAD_ID, EVENT_NAME,STATE,TRX_ID, GTID,SOURCE,TIMER_WAIT,ACCESS_MODE, ISOLATION_LEVEL,AUTOCOMMIT,NESTING_EVENT_ID,NESTING_EVENT_TYPE from events_transactions_current\G
+
+![img](MySQL事物篇.assets/clip_image012.jpg)
+
+ 
+
+\#提示：如果一个事务长时间未提交（长时间处于ACTIVE状态），对于这种情况，虽然从events_transactions_current表中可以查询到未提交的事务事件信息，但是并不能很直观地看到**事务是什么时间点开始的**，我们可以借助information_schema.innodb_trx表来进行辅助判断。
+
+**注：借助information_schema.innodb_trx辅助判断仍活跃(ACTIVE)事务的开始时间。注意这里需要重新利用会话2激活一个未提交的事务:**
+
+![img](MySQL事物篇.assets/clip_image014.jpg)
+
+mysql> select * from information_schema.innodb_trx\G
+
+![img](MySQL事物篇.assets/clip_image016.jpg)
+
+ 
 
 # 第14章_MySQL事务日志
 
@@ -1815,6 +1939,12 @@ ps：
 
 ##### ② 间隙锁（Gap Locks）
 
+innodb**自动使用间隙锁的条件**：
+
+(1)必须在RR级别下
+
+(2)检索条件必须有索引(没有索引的话，mysql会全表扫描，那样会锁定整张表所有的记录，包括不存在的记录，此时其他事务不能修改不能删除不能添加)
+
 `MySQL` 在 `REPEATABLE READ` 隔离级别下是可以解决幻读问题的，解决方案有两种，可以使用 `MVCC` 方 案解决，也可以采用 `加锁 `方案解决。但是在使用加锁方案解决时有个大问题，就是事务在第一次执行读取操作时，那些幻影记录尚不存在，我们无法给这些 `幻影记录` 加上 `记录锁` 。InnoDB提出了一种称之为 `Gap Locks` 的锁，官方的类型名称为：` LOCK_GAP` ，我们可以简称为 `gap锁` 。比如，把id值为8的那条记录加一个gap锁的示意图如下。
 
 添加锁（间隙锁应该是和下面的锁（S或X锁都行）一起添加的）：
@@ -1891,6 +2021,8 @@ ps：此时id为8的记录不能添加S或X锁，如：begin; 	select * from stu
 
 ##### ④插入意向锁
 
+**写在前面**，插入意向锁是innodb`自动`生成的，而间隙锁是我们`手动`加的；当某记录加了间隙锁时，如果我们想往该间隙里加锁，innodb会尝试获取这里的插入意向锁，然后发现间隙锁进而阻塞等待；而如果间隙锁不存在，我们在某记录插入记录时，innodb会在该记录创建插入意向锁，如果有其他插入意向锁要在此处创建则不会阻塞（前提是不是同一条数据行）。
+
 <img src="MySQL事物篇.assets/image-20220713203124889.png" alt="image-20220713203124889" style="float:left;" />
 
 <img src="MySQL事物篇.assets/image-20220713203532124.png" alt="image-20220713203532124" style="float:left;" />
@@ -1898,6 +2030,14 @@ ps：此时id为8的记录不能添加S或X锁，如：begin; 	select * from stu
 <img src="MySQL事物篇.assets/image-20220713203619704.png" alt="image-20220713203619704" style="float:left;" />
 
 <img src="MySQL事物篇.assets/image-20220713203714577.png" alt="image-20220713203714577" style="float:left;" />
+
+ <img src="MySQL事物篇.assets/image-20230519190923602.png" alt="image-20230519190923602" style="zoom:67%;" />
+
+插入意向锁是一种在 INSERT 操作之前设置的一种间隙锁，插入意向锁表示了一种**插入意图**，即当多个不同的事务，同时往同一个索引的同一个间隙中插入数据的时候，它们互相之间无需等待，即不会阻塞（要是单纯按照之前间隙锁的理论，必须要等一个间隙锁释放了，下一个事务才可以往相同的间隙处插入数据）。假设有值为 4 和 7 的索引记录，现在有两个事务，分别尝试插入值为 5 和 6 的记录，在获得插入行的排他锁之前，每个事务使用插入意向锁锁定 4 和 7 之间的间隙，但是这两个事务不会相互阻塞，因为行是不冲突的。
+
+这就是插入意向锁。
+
+
 
 #### 3. 页锁
 
@@ -2536,6 +2676,8 @@ session A 的加锁范围是索引 col1 上的 (5,10] 、 (10,15] 、 (15,20] �
 MVCC （Multiversion Concurrency Control），多版本并发控制。顾名思义，MVCC 是通过数据行的多个版本管理来实现数据库的 `并发控制 `。这项技术使得在InnoDB的事务隔离级别下执行 `一致性读` 操作有了保证。换言之，就是为了查询一些正在被另一个事务更新的行，并且可以看到它们被更新之前的值，这样 在做查询的时候就不用等待另一个事务释放锁。
 
 MVCC没有正式的标准，在不同的DBMS中MVCC的实现方式可能是不同的，也不是普遍使用的（大家可以参考相关的DBMS文档）。这里讲解InnoDB中MVCC的实现机制（MySQL其他的存储引擎并不支持它）。
+
+**==注意==**：按我理解，如果是普通读（非事务）则是快照读，即读取的是已提交的最新数据；而如果是**开启事务后**的读，则会加间隙锁（RR级别，检索条件有索引）防止幻读。
 
 ## 2. 快照读与当前读
 
